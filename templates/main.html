@@ -1,0 +1,25 @@
+<!doctype html>
+<html charset='utf-8'>
+  <head>
+     <title>Current Apartment Conditions</title>
+     <style>
+       body {font-family: helvetica, arial, sans-serif; font-size: 50px;}
+       td { padding: 10px; }
+       .value { color: green; }
+       header { border-bottom: 1px solid black }
+     </style>
+  </head>
+  <body>
+    <header>Current Conditions</header>
+    <section>
+       <table>
+         <tr>
+           <td>Temperature</td><td class='value'>{{sensor.temperature}}°C</td>
+         </tr>
+         <tr>
+           <td>Humidity</td><td class='value'>{{sensor.humidity}}%</td>
+         </tr>
+       </table>
+    </section>
+  </body>
+</html>
