@@ -1,155 +1,214 @@
-# -*- coding: utf-8 -*-
-
-from __future__ import absolute_import, division, print_function, unicode_literals
-
 import time
+import atexit
+
 import pigpio
 
+class Sensor(object):
+   def __init__(self, pi, gpio, LED=None, power=None):
+      """
+      Instantiate with the Pi and gpio to which the DHT22 output
+      pin is connected.
 
-class DHT11(object):
-    """
-    The DHT11 class is a stripped version of the DHT22 sensor code by joan2937.
-    You can find the initial implementation here:
-    - https://github.com/srounet/pigpio/tree/master/EXAMPLES/Python/DHT22_AM2302_SENSOR
+      Optionally a LED may be specified.  This will be blinked for
+      each successful reading.
 
-    example code:
-    >>> pi = pigpio.pi()
-    >>> sensor = DHT11(pi, 4) # 4 is the data GPIO pin connected to your sensor
-    >>> for response in sensor:
-    ....    print("Temperature: {}".format(response['temperature']))
-    ....    print("Humidity: {}".format(response['humidity']))
-    """
+      Optionally a gpio used to power the sensor may be specified.
+      This gpio will be set high to power the sensor.  If the sensor
+      locks it will be power cycled to restart the readings.
 
-    def __init__(self, pi, gpio):
-        """
-        pi (pigpio): an instance of pigpio
-        gpio (int): gpio pin number
-        """
-        self.pi = pi
-        self.gpio = gpio
-        self.high_tick = 0
-        self.bit = 40
-        self.temperature = 0
-        self.humidity = 0
-        self.either_edge_cb = None
-        self.message = ""
-        self.setup()
+      Taking readings more often than about once every two seconds will
+      eventually cause the DHT22 to hang.  A 3 second interval seems OK.
+      """
 
-    def setup(self):
-        """
-        Clears the internal gpio pull-up/down resistor.
-        Kills any watchdogs.
-        """
-        self.pi.set_pull_up_down(self.gpio, pigpio.PUD_OFF)
-        self.pi.set_watchdog(self.gpio, 0)
-        self.register_callbacks()
+      self.pi = pi
+      self.gpio = gpio
+      self.LED = LED
+      self.power = power
 
-    def register_callbacks(self):
-        """
-        Monitors RISING_EDGE changes using callback.
-        """
-        self.either_edge_cb = self.pi.callback(
-            self.gpio,
-            pigpio.EITHER_EDGE,
-            self.either_edge_callback
-        )
+      if power is not None:
+         pi.write(power, 1) # Switch sensor on.
+         time.sleep(2)
 
-    def either_edge_callback(self, gpio, level, tick):
-        """
-        Either Edge callbacks, called each time the gpio edge changes.
-        Accumulate the 40 data bits from the dht11 sensor.
-        """
-        level_handlers = {
-            pigpio.FALLING_EDGE: self._edge_FALL,
-            pigpio.RISING_EDGE: self._edge_RISE,
-            pigpio.EITHER_EDGE: self._edge_EITHER
-        }
-        handler = level_handlers[level]
-        diff = pigpio.tickDiff(self.high_tick, tick)
-        handler(tick, diff)
+      self.powered = True
 
-    def _edge_RISE(self, tick, diff):
-        """
-        Handle Rise signal.
-        """
-        val = 0
-        if diff >= 50:
+      self.cb = None
+
+      atexit.register(self.cancel)
+
+      self.bad_CS = 0 # Bad checksum count.
+      self.bad_SM = 0 # Short message count.
+      self.bad_MM = 0 # Missing message count.
+      self.bad_SR = 0 # Sensor reset count.
+
+      # Power cycle if timeout > MAX_TIMEOUTS.
+      self.no_response = 0
+      self.MAX_NO_RESPONSE = 2
+
+      self.rhum = -999
+      self.temp = -999
+
+      self.tov = None
+
+      self.high_tick = 0
+      self.bit = 40
+
+      pi.set_pull_up_down(gpio, pigpio.PUD_OFF)
+
+      pi.set_watchdog(gpio, 0) # Kill any watchdogs.
+
+      self.cb = pi.callback(gpio, pigpio.EITHER_EDGE, self._cb)
+
+   def _cb(self, gpio, level, tick):
+      """
+      Accumulate the 40 data bits.  Format into 5 bytes, humidity high,
+      humidity low, temperature high, temperature low, checksum.
+      """
+      diff = pigpio.tickDiff(self.high_tick, tick)
+
+      if level == 0:
+
+         # Edge length determines if bit is 1 or 0.
+
+         if diff >= 50:
             val = 1
-        if diff >= 200: # Bad bit?
-            self.message = "Bad bit received"
-            self.checksum = 256 # Force bad checksum
+            if diff >= 200: # Bad bit?
+               self.CS = 256 # Force bad checksum.
+         else:
+            val = 0
 
-        if self.bit >= 40: # Message complete
+         if self.bit >= 40: # Message complete.
             self.bit = 40
-        elif self.bit >= 32: # In checksum byte
-            self.checksum = (self.checksum << 1) + val
+
+         elif self.bit >= 32: # In checksum byte.
+            self.CS  = (self.CS<<1)  + val
+
             if self.bit == 39:
-                # 40th bit received
-                self.pi.set_watchdog(self.gpio, 0)
-                total = self.humidity + self.temperature
-                # is checksum ok ?
-                if not (total & 255) == self.checksum:
-                    self.message = "Bad checksum"
-                    self.humidity = 0
-                    self.temperature = 0
-        elif 16 <= self.bit < 24: # in temperature byte
-            self.temperature = (self.temperature << 1) + val
-        elif 0 <= self.bit < 8: # in humidity byte
-            self.humidity = (self.humidity << 1) + val
-        else: # skip header bits
+               # 40th bit received.
+               self.pi.set_watchdog(self.gpio, 0)
+               self.no_response = 0
+               total = self.hH + self.hL + self.tH + self.tL
+
+               if (total & 255) == self.CS: # Is checksum ok?
+                  self.rhum = ((self.hH<<8) + self.hL) * 0.1
+                  if self.tH & 128: # Negative temperature.
+                     mult = -0.1
+                     self.tH = self.tH & 127
+                  else:
+                     mult = 0.1
+                  self.temp = ((self.tH<<8) + self.tL) * mult
+                  self.tov = time.time()
+
+                  if self.LED is not None:
+                     self.pi.write(self.LED, 0)
+               else:
+                  self.bad_CS += 1
+
+         elif self.bit >=24: # in temp low byte
+            self.tL = (self.tL<<1) + val
+
+         elif self.bit >=16: # in temp high byte
+            self.tH = (self.tH<<1) + val
+
+         elif self.bit >= 8: # in humidity low byte
+            self.hL = (self.hL<<1) + val
+
+         elif self.bit >= 0: # in humidity high byte
+            self.hH = (self.hH<<1) + val
+
+         else:               # header bits
             pass
-        self.bit += 1
 
-    def _edge_FALL(self, tick, diff):
-        """
-        Handle Fall signal.
-        """
-        self.high_tick = tick
-        if diff <= 250000:
-            return
-        self.bit = -2
-        self.checksum = 0
-        self.temperature = 0
-        self.humidity = 0
+         self.bit += 1
 
-    def _edge_EITHER(self, tick, diff):
-        """
-        Handle Either signal.
-        """
-        self.pi.set_watchdog(self.gpio, 0)
+      elif level == 1:
+         self.high_tick = tick
+         if diff > 250000:
+            self.bit = -2
+            self.hH = 0
+            self.hL = 0
+            self.tH = 0
+            self.tL = 0
+            self.CS = 0
 
-    def read(self):
-        """
-        Start reading over DHT11 sensor.
-        """
-        self.pi.write(self.gpio, pigpio.LOW)
-        time.sleep(0.017) # 17 ms
-        self.pi.set_mode(self.gpio, pigpio.INPUT)
-        self.pi.set_watchdog(self.gpio, 200)
-        time.sleep(0.2)
+      else: # level == pigpio.TIMEOUT:
+         self.pi.set_watchdog(self.gpio, 0)
+         if self.bit < 8:       # Too few data bits received.
+            self.bad_MM += 1    # Bump missing message count.
+            self.no_response += 1
+            if self.no_response > self.MAX_NO_RESPONSE:
+               self.no_response = 0
+               self.bad_SR += 1 # Bump sensor reset count.
+               if self.power is not None:
+                  self.powered = False
+                  self.pi.write(self.power, 0)
+                  time.sleep(2)
+                  self.pi.write(self.power, 1)
+                  time.sleep(2)
+                  self.powered = True
+         elif self.bit < 39:    # Short message receieved.
+            self.bad_SM += 1    # Bump short message count.
+            self.no_response = 0
 
-    def close(self):
-        """
-        Stop reading sensor, remove callbacks.
-        """
-        self.pi.set_watchdog(self.gpio, 0)
-        if self.either_edge_cb:
-            self.either_edge_cb.cancel()
-            self.either_edge_cb = None
+         else:                  # Full message received.
+            self.no_response = 0
 
-    def __iter__(self):
-        """
-        Support the iterator protocol.
-        """
-        return self
+   @property
+   def temperature(self):
+      """Return current temperature."""
+      return self.temp
 
-    def next(self):
-        """
-        Call the read method and return temperature and humidity informations.
-        """
-        self.read()
-        response =  {
-            'humidity': self.humidity,
-            'temperature': self.temperature
-        }
-        return response
+   @property
+   def humidity(self):
+      """Return current relative humidity."""
+      return self.rhum
+
+   @property
+   def staleness(self):
+      """Return time since measurement made."""
+      if self.tov is not None:
+         return time.time() - self.tov
+      else:
+         return -999
+
+   @property
+   def bad_checksum(self):
+      """Return count of messages received with bad checksums."""
+      return self.bad_CS
+
+   @property
+   def short_message(self):
+      """Return count of short messages."""
+      return self.bad_SM
+
+   @property
+   def missing_message(self):
+      """Return count of missing messages."""
+      return self.bad_MM
+
+   @property
+   def sensor_resets(self):
+      """Return count of power cycles because of sensor hangs."""
+      return self.bad_SR
+
+   @property
+   def message(self):
+       return "Staleness: {}, Short Messages: {}, Missing Messages: {}, Bad Checksums: {}".format(self.staleness, self.short_message, self.missing_message, self.bad_checksum)
+   def read(self):
+      """Trigger a new relative humidity and temperature reading."""
+      if self.powered:
+         if self.LED is not None:
+            self.pi.write(self.LED, 1)
+
+         self.pi.write(self.gpio, pigpio.LOW)
+         time.sleep(0.017) # 17 ms
+         self.pi.set_mode(self.gpio, pigpio.INPUT)
+         self.pi.set_watchdog(self.gpio, 200)
+
+   def cancel(self):
+      """Cancel the DHT22 sensor."""
+
+      self.pi.set_watchdog(self.gpio, 0)
+
+      if self.cb != None:
+         self.cb.cancel()
+         self.cb = None

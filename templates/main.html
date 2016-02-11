@@ -7,19 +7,35 @@
        td { padding: 10px; }
        .value { color: green; }
        header { border-bottom: 1px solid black }
+       section{ border-bottom: 1px solid black }
+       footer { border-top: 1px solid black; color: orange; font-size:9px;}
+       #message {display:none;}
+       #switches {font-size: 20px;}
+       button{ font-size:20px;}
      </style>
+     <script src='https://code.jquery.com/jquery-git2.min.js'></script>
+     <script type='text/javascript'>
+     $(function() {
+          $.getJSON('current', function(data) {
+           $('#temperature').text(data['temperature']);
+           $('#humidity').text(data['humidity']);
+           $('#message').text(data['message']);
+         });
+      });
+      </script>
   </head>
   <body>
     <header>Current Conditions</header>
     <section>
        <table>
          <tr>
-           <td>Temperature</td><td class='value'>{{sensor.temperature}}°C</td>
+           <td>Temperature</td><td class='value'><span id='temperature'></span>°C</td>
          </tr>
          <tr>
-           <td>Humidity</td><td class='value'>{{sensor.humidity}}%</td>
+           <td>Humidity</td><td class='value'><span id='humidity'></span>%</td>
          </tr>
        </table>
     </section>
+    <footer><span id='message'></span></footer>
   </body>
 </html>
