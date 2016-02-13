@@ -15,14 +15,18 @@
      </style>
      <script src='https://code.jquery.com/jquery-git2.min.js'></script>
      <script type='text/javascript'>
-     $(function() {
-          $.getJSON('current', function(data) {
-           $('#temperature').text(data['temperature']);
-           $('#humidity').text(data['humidity']);
-           $('#message').text(data['message']);
-         });
-      });
-      </script>
+       function refreshData(){
+            $.getJSON('current', function(data) {
+             $('#temperature').text(data['temperature']);
+             $('#humidity').text(data['humidity']);
+             $('#message').text(data['message']);
+             setTimeout(refreshData, 5100);
+           });
+       }
+       $(function() {
+         refreshData()
+       });
+     </script>
   </head>
   <body>
     <header>Current Conditions</header>

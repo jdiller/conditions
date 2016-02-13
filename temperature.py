@@ -39,11 +39,12 @@ def conditions():
         logging.debug("Getting new readings")
         sensor = Sensor(pi, 25)
         sensor.read()
-        time.sleep(0.2)
+        time.sleep(0.3)
         r.set('last_reading', (sensor.temperature,
                                sensor.humidity, sensor.message, time.time()))
         conditions = Conditions(
             sensor.temperature, sensor.humidity, sensor.message)
+        sensor.cancel()
     else:
         logging.debug("Using cached readings")
         conditions = Conditions(
