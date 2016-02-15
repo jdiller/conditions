@@ -9,20 +9,32 @@
        header { border-bottom: 1px solid black }
        section{ border-bottom: 1px solid black }
        footer { border-top: 1px solid black; color: orange; font-size:9px;}
-       #message {display:none;}
        #switches {font-size: 20px;}
        button{ font-size:20px;}
      </style>
      <script src='https://code.jquery.com/jquery-git2.min.js'></script>
      <script type='text/javascript'>
+       var timeout_handle;
        function refreshData(){
             $.getJSON('current', function(data) {
              $('#temperature').text(data['temperature']);
              $('#humidity').text(data['humidity']);
              $('#message').text(data['message']);
-             setTimeout(refreshData, 5100);
+             timeout_handle = setTimeout(refreshData, 2000);
            });
        }
+
+       $(window).on('blur', function(e) {
+         if (timeout_handle) {
+           clearTimeout(timeout_handle);
+           $('#message').text('Paused');
+         }
+       });
+
+       $(window).on('focus', function(e) {
+           refreshData();
+       });
+
        $(function() {
          refreshData()
        });
