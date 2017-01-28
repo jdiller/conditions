@@ -3,18 +3,23 @@
   <head>
      <title>Current Apartment Conditions</title>
      <style>
-       body {font-family: helvetica, arial, sans-serif; font-size: 50px;}
-       td { padding: 10px; }
+       body {font-family: helvetica, arial, sans-serif;}
+       td { padding: 10px; font-size: 45px;}
        .value { color: green; }
-       header { border-bottom: 1px solid black }
+       header { border-bottom: 1px solid black; font-size:50px }
        section{ border-bottom: 1px solid black }
        footer { border-top: 1px solid black; color: orange; font-size:9px;}
        #switches {font-size: 20px;}
        button{ font-size:20px;}
+       #d3graph svg{ font-size: 10px; height:600px; width:100%; padding:10px;}
+
      </style>
      <script src='https://code.jquery.com/jquery-git2.min.js'></script>
+     <script src="https://d3js.org/d3.v3.js"></script>
+     <script src='https://cdn.rawgit.com/novus/nvd3/v1.8.1/build/nv.d3.js'></script>
      <script type='text/javascript'>
        var timeout_handle;
+       var history_data;
        function refreshData(){
             $.getJSON('current', function(data) {
              $('#temperature').text(data['temperature']);
@@ -22,6 +27,10 @@
              $('#message').text(data['message']);
              timeout_handle = setTimeout(refreshData, 2000);
            });
+            $.getJSON('history', function(data) {
+              history_data = data;
+              doChart();
+            }); 
        }
 
        $(window).on('blur', function(e) {
@@ -38,7 +47,56 @@
        $(function() {
          refreshData()
        });
-     </script>
+
+       function doChart(){
+         nv.addGraph(function() {
+            var chart = nv.models.lineChart()
+                          .margin({left: 100})
+                          .useInteractiveGuideline(true)
+                          .showLegend(true)
+                          .showYAxis(true)
+                          .showXAxis(true)
+            ;
+
+            chart.xAxis
+                .axisLabel('Date')
+                .tickFormat(d3.format(',r'));
+
+            chart.yAxis
+                .axisLabel('Temperature (C)')
+                .tickFormat(d3.format('.1f'));
+
+            var myData = prepare_data();
+
+            d3.select('#d3graph svg')
+                .datum(myData)
+                .call(chart);
+
+            //Update the chart when window resizes.
+            nv.utils.windowResize(function() { chart.update() });
+            return chart;
+          });
+        }
+
+        function prepare_data() {
+          if (!history_data){
+            return [];
+          }
+          d = [
+            { key: 'Temperature',
+              x: history_data['time'],
+              color: "#2ca02c",
+              values: history_data['temp']
+            },
+            { key: 'Humidity',
+              x: history_data['time'],
+              values: history_data['humidity'],
+              color: '#7777ff'
+            }
+          ];
+          return d;
+        }
+  </script>
   </head>
   <body>
     <header>Current Conditions</header>
@@ -51,6 +109,10 @@
            <td>Humidity</td><td class='value'><span id='humidity'></span>%</td>
          </tr>
        </table>
+    </section>
+    <header>Historical Conditions</header>
+    <section>
+      <div id='d3graph'><svg></svg></div>
     </section>
     <footer><span id='message'></span></footer>
   </body>
