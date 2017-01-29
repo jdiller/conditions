@@ -22,9 +22,11 @@ logging.basicConfig(level=logging.DEBUG)
 pi = pigpio.pi()
 CACHE_TIME = 5
 
+
 @app.route("/")
 def home():
     return render_template('main.html')
+
 
 @app.route("/history")
 def history():
@@ -36,16 +38,24 @@ def history():
     if samples:
         samples = ast.literal_eval(samples['samples'])
         logging.debug(type(samples))
-        samples = sorted(samples, key=lambda item: datetime.datetime.strptime(item['datetime'], '%Y-%m-%d %H:%M:%S'))
+        samples = sorted(samples, key=lambda item: datetime.datetime.strptime(
+            item['datetime'], '%Y-%m-%d %H:%M:%S'))
         output = {
-            'temp' : [{'x' : time.mktime(datetime.datetime.strptime(d['datetime'], '%Y-%m-%d %H:%M:%S').timetuple()), 'y': float(d['temperature'])} for d in samples],
-            'humidity' : [{'x': time.mktime(datetime.datetime.strptime(d['datetime'],'%Y-%m-%d %H:%M:%S').timetuple()), 'y': float(d['humidity'])} for d in samples]
+            'temp': [{
+                'x': time.mktime(datetime.datetime.strptime(d['datetime'], '%Y-%m-%d %H:%M:%S').timetuple()),
+                'y': float(d['temperature'])
+            } for d in samples],
+            'humidity': [{
+                'x': time.mktime(datetime.datetime.strptime(d['datetime'], '%Y-%m-%d %H:%M:%S').timetuple()),
+                'y': float(d['humidity'])
+            } for d in samples]
         }
         cache_json = json.dumps(output)
         r.set('history_cache', cache_json, ex=500)
         return jsonify(output)
     else:
         return "Data not available"
+
 
 @app.route("/current")
 def conditions():
