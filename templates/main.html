@@ -4,14 +4,13 @@
      <title>Current Apartment Conditions</title>
      <style>
        body {font-family: helvetica, arial, sans-serif;}
-       td { padding: 10px; font-size: 45px;}
+       #current td { padding: 10px; font-size: 45px;}
        .value { color: green; }
        header { border-bottom: 1px solid black; font-size:50px }
        section{ border-bottom: 1px solid black }
        footer { border-top: 1px solid black; color: orange; font-size:9px;}
-       #switches {font-size: 20px;}
-       button{ font-size:20px;}
-       #d3graph svg{ font-size: 10px; height:600px; width:100%; padding:10px;}
+       #d3graph { font-size: 10px; margin: 5px }
+       #d3graph svg{ font-size: 10px; height:600px; width:100%; padding:10px; display:block;}
 
      </style>
      <script src='https://code.jquery.com/jquery-git2.min.js'></script>
@@ -51,16 +50,15 @@
        function doChart(){
          nv.addGraph(function() {
             var chart = nv.models.lineChart()
-                          .margin({left: 100})
-                          .useInteractiveGuideline(true)
-                          .showLegend(true)
-                          .showYAxis(true)
-                          .showXAxis(true)
+                          .options({ 
+                              duration: 300,
+                              useInteractiveGuideline: true
+                          });
             ;
 
             chart.xAxis
                 .axisLabel('Date')
-                .tickFormat(d3.format(',r'));
+                .tickFormat(function(d) { return d3.time.format('%x')(new Date(d * 1000)) });
 
             chart.yAxis
                 .axisLabel('Temperature (C)')
@@ -82,16 +80,23 @@
           if (!history_data){
             return [];
           }
+          var filter_func = function(d) {
+            return d.x > 1480550400;
+          };
+          history_data.humidity = history_data.humidity.filter(filter_func);
+          history_data.temp = history_data.temp.filter(filter_func);
           d = [
             { key: 'Temperature',
               x: history_data['time'],
               color: "#2ca02c",
-              values: history_data['temp']
+              values: history_data['temp'],
+              area: false
             },
             { key: 'Humidity',
               x: history_data['time'],
               values: history_data['humidity'],
-              color: '#7777ff'
+              color: '#7777ff',
+              area: false
             }
           ];
           return d;
@@ -99,17 +104,19 @@
   </script>
   </head>
   <body>
-    <header>Current Conditions</header>
-    <section>
-       <table>
-         <tr>
-           <td>Temperature</td><td class='value'><span id='temperature'></span>°C</td>
-         </tr>
-         <tr>
-           <td>Humidity</td><td class='value'><span id='humidity'></span>%</td>
-         </tr>
-       </table>
-    </section>
+    <div id='current'>
+      <header>Current Conditions</header>
+      <section>
+        <table>
+           <tr>
+             <td>Temperature</td><td class='value'><span id='temperature'></span>°C</td>
+           </tr>
+           <tr>
+             <td>Humidity</td><td class='value'><span id='humidity'></span>%</td>
+           </tr>
+         </table>
+      </section>
+    </div>
     <header>Historical Conditions</header>
     <section>
       <div id='d3graph'><svg></svg></div>
